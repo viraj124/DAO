@@ -1,4 +1,4 @@
-pragma solidity ^0.5.7;
+pragma solidity ^0.5.2;
 
 //DAO is like closed ended fund
 
@@ -7,11 +7,16 @@ contract DAO {
         require(investors[msg.sender] == true, "Only Investors");
         _;
     }
+    
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only Admin");
+        _;
+    }
 
     struct Proposal {
-        uint256 id,
-        string name,
-        uint256 amount,
+        uint256 id;
+        string name;
+        uint256 amount;
         address payable recipient;
         uint256 votes;
         uint256 end;
@@ -40,7 +45,11 @@ contract DAO {
     
     address public admin;
     
-    constructor(uint256 contributionTime) public {
+    constructor(uint256 contributionTime, uint256 _voteTime, uint256 _quorum) public {
+        require(_quorum < 100 && _quorum > 0);
+        voteTime = _voteTime;
+        quorum = _quorum;
+        admin = msg.sender;
         contributionEnd = now + contributionTime;
     }
     
@@ -68,9 +77,9 @@ contract DAO {
         investors[to] = true;
     }
     
-    function createProposal(string memory name, uint256 amount, address payable recipient) external onlyInvestors() {
+    function createProposal(string calldata name, uint256 amount, address payable recipient) external onlyInvestors() {
         require(availableFunds >= amount, "Amount too big");
-        Proposal[nextProposalId] = Proposal(nextProposalId, name, amount, recipient, 0, now + voteTime, false);
+        proposals[nextProposalId] = Proposal(nextProposalId, name, amount, recipient, 0, now + voteTime, false);
         availableFunds -= amount;
         nextProposalId++;
     }
@@ -80,8 +89,32 @@ contract DAO {
      require(votes[msg.sender][proposalId] == false, "Investor can only vote once for a proposal");
      require(now < proposal.end, "Can only vote till end time");
      votes[msg.sender][proposalId] = true;
-     proposal.votes += share[msg.sender];
+     proposal.votes += shares[msg.sender];
     }
     
-
+     function _transferEther(uint256 amount, address payable to) internal {
+        require(amount <= availableFunds, "Not enough funds");
+        availableFunds -= amount;
+        to.transfer(amount);
+    }
+    
+    function executeProposal(uint256 proposalId) external onlyAdmin() {
+        Proposal storage proposal = proposals[proposalId];
+        require(now > proposal.end, "Proposal already executed");
+        require(proposal.executed == false, "Proposal has already been executed");
+        require((proposal.votes / totalShares) * 100 >= quorum, "Not emough votes");
+        proposal.executed = true;
+        _transferEther(proposal.amount, proposal.recipient);
+    }
+    
+   
+    
+    function withdrawEther(uint256 amount, address payable _admin) external onlyAdmin() {
+        _transferEther(amount, _admin);
+    }
+    
+    function() payable external {
+        availableFunds += msg.value;
+    }
+    
 }
